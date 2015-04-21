@@ -1,4 +1,4 @@
-// A Unix-Style Delimiter-Separated Values (DSV) Parser
+// libpt: Plain Text Manipulation
 // Written in 2015 by Jordan Vaughan
 
 // To the extent possible under law, the author(s) have dedicated all copyright
@@ -17,16 +17,16 @@
 
 #include <algorithm>
 #include <cassert>
-#include <istream>
 #include <string>
+#include <Exceptions.h>
 
-namespace PlainText {
+namespace libpt {
 
 // This class provides Escape and Separator fields required
 // by DSVParser in its Callbacks type parameter so that '\\' is
 // the escape character and ':' is the field separator.  This is
 // widespread on UNIX systems.
-template <typename _CharT>
+template <typename _CharT = char>
 class UnixDSVParser {
 
 public:
@@ -131,10 +131,14 @@ protected:
 //     * a _CharT called Escape, which represents a single escape
 //       character
 //
+// Providing a move constructor is helpful.
+//
 template<typename Callbacks, typename _CharT = char>
 class DSVParser {
 
 public:
+	typedef _CharT CharT;
+
 	DSVParser() : Hooks(), Escaping(false), InRecord(false) {
 		assert(this);
 	}
@@ -142,6 +146,12 @@ public:
 	DSVParser(const Callbacks &hooks) : Hooks(hooks), Escaping(false),
 	 									InRecord(false) {
 		assert(this);
+	}
+
+	DSVParser(Callbacks &&hooks) : DSVParser() {
+		assert(this);
+		assert(&hooks);
+		std::swap(Hooks, hooks);
 	}
 
 	DSVParser(const DSVParser &) = delete;
@@ -155,6 +165,8 @@ public:
 
 	~DSVParser() {
 		assert(this);
+		FinishParsing();
+		Escaping = InRecord = false;
 	}
 
 	DSVParser operator=(const DSVParser &) = delete;
@@ -168,16 +180,19 @@ public:
 		return *this;
 	}
 
-	void FeedCharacter(_CharT c) {
+	// Feed the parser a single character.
+	void FeedCharacter(CharT c) {
+		assert(this);
 		HandleParsedCharacter(c);
 	}
 
+	// Call this when you finish parsing.  The destructor will do this
+	// for you automatically.
 	void FinishParsing() {
-		if (Escaping) {
-			throw EscapeAtEOFException();
-		} else if (InRecord) {
+		assert(this);
+		if (InRecord) {
 			Hooks.OnFieldEnd();
-			InRecord = false;
+			Escaping = InRecord = false;
 			Hooks.OnRecordEnd();
 		}
 	}
@@ -189,6 +204,7 @@ public:
 		return Hooks;
 	}
 
+	// Get the callbacks object.
 	const Callbacks &GetCallbacks() const
 	{
 		assert(this);
@@ -196,25 +212,40 @@ public:
 	}
 
 	// Get the escape character.
-	_CharT GetEscape() const {
+	CharT GetEscape() const {
 		assert(this);
 		return Hooks.Escape;
 	}
 
 	// Get the field separator character.
-	_CharT GetSeparator() const {
+	CharT GetSeparator() const {
 		assert(this);
 		return Hooks.Separator;
 	}
 
-	// Parse the specified stream.  This calls FinishParsing.
-	template <typename _Traits>
-	void Parse(std::basic_istream<_CharT, _Traits> &stream) {
-		assert(&stream);
-		_CharT c;
-		for (stream.get(c); !stream.fail(); stream.get(c)) {
-			HandleParsedChar(c);
-		}
+	// Parse the specified stream.  This does not call FinishParsing.
+	// Reader must be a reader class that implements at least ReadChar
+	// and IsEOF.  FileReader is an example of an acceptable reader.
+	template <typename Reader>
+	void Parse(Reader &reader) {
+		assert(this);
+		assert(&reader);
+		CharT c;
+		try {
+			while (!reader.IsEOF()) {
+				HandleParsedCharacter(reader.ReadChar());
+			}
+		} catch (EOFException e) {}
+	}
+
+	// Parse the specified stream and call FinishParsing.
+	// See Parse for Reader requirements.
+	template <typename Reader>
+	void ParseOnly(Reader &reader) {
+		assert(this);
+		assert(&reader);
+		Parse(reader);
+		FinishParsing();
 	}
 
 	// Make the parser think it's at the beginning of a stream
@@ -226,7 +257,8 @@ public:
 	}
 
 private:
-	void HandleParsedCharacter(_CharT c) {
+	void HandleParsedCharacter(CharT c) {
+		assert(this);
 		if (Escaping) {
 			Hooks.OnFieldCharacter(c);
 			Escaping = false;

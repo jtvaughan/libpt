@@ -5,7 +5,7 @@ Introduction:
     libpt is a collection of C++ parsers for some of the most common
     plain text formats.  Instructions are in the individual header files.
 
-Available Parsers:
+Parsers:
 
     Delimiter-Separated Values (DSV) -- DSV.h
 
@@ -18,11 +18,31 @@ Available Parsers:
         don't need to be quoted.  UNIX's /etc/passwd is an example of a
         DSV file.
 
+Readers:
+
+    Parsers use readers to get characters from various sources.  The following
+    are provided by libpt:
+
+        FileReader -- DSV.h
+
+            FileReaders supply characters from C FILEs to parsers.
+
+        StringReader and CStringReader -- StringReader.h
+
+            These two classes supply characters from C++ and C strings,
+            respectively, to parsers.
+
+Other Headers:
+
+    Exceptions.h
+
+        This header defines many of libpt's exceptions.
+
 Copyright:
 
     Copyright?  Hah!  Here's my "copyright":
 
-        This library was written in 2013 by Jordan Vaughan.
+        This library was written in 2015 by Jordan Vaughan.
 
         To the extent possible under law, the author(s) have dedicated all
         copyright and related and neighboring rights to this software to the
@@ -34,4 +54,3 @@ Copyright:
         http://creativecommons.org/publicdomain/zero/1.0/.
 
     A full copy of the public domain dedication is in COPYING.
-
