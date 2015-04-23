@@ -20,23 +20,28 @@ Parsers:
 
 Readers:
 
-    Parsers use readers to get characters from various sources.  The following
-    are provided by libpt:
+    Parsers use readers to get characters from various sources.  libpt
+    provides the following:
 
         FileReader -- DSV.h
 
-            FileReaders supply characters from C FILEs to parsers.
+            FileReaders supply characters from C FILEs.
 
         StringReader and CStringReader -- StringReader.h
 
             These two classes supply characters from C++ and C strings,
-            respectively, to parsers.
+            respectively.
 
 Other Headers:
 
     Exceptions.h
 
         This header defines many of libpt's exceptions.
+
+    StringToNumber.h
+
+        This header defines templated functions that wrap C's strto*
+        functions for C and C++ strings.
 
 Copyright:
 

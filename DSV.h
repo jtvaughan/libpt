@@ -22,99 +22,13 @@
 
 namespace libpt {
 
-// This class provides Escape and Separator fields required
-// by DSVParser in its Callbacks type parameter so that '\\' is
-// the escape character and ':' is the field separator.  This is
-// widespread on UNIX systems.
-template <typename _CharT = char>
-class UnixDSVParser {
-
-public:
-    static const _CharT Escape = '\\';
-    static const _CharT Separator = ':';
-
-};    // class UnixDSVParser
-
-// This class implements the OnFieldCharacter method required
-// by DSVParser in its Callbacks type parameter.  This class
-// buffers the characters passed to the method in a string,
-// which subclasses can access.
-//
-// Typically, subclasses should implement all of the other
-// requirements of DSVParser's Callbacks type and use this
-// class's Field member to get a field's contents when
-// OnFieldEnd is invoked.  The same method should call ClearField
-// when it's done processing the field's text.
-//
-// For convenience, this class provides an implementation of
-// OnReset that calls ClearField.
-template <typename _CharT = char,
-          typename _CharTraits = std::char_traits<_CharT>,
-          typename _Alloc = std::allocator<_CharT> >
-class DSVStringFieldBuffer {
-
-public:
-    // string type used to buffer field text
-    typedef std::basic_string<_CharT, _CharTraits, _Alloc> TField;
-
-    DSVStringFieldBuffer() { assert(this); }
-    DSVStringFieldBuffer(const DSVStringFieldBuffer &that) :
-        Field(that.Field) {
-        assert(this);
-        assert(&that);
-    }
-
-    DSVStringFieldBuffer(DSVStringFieldBuffer &&that) :
-        DSVStringFieldBuffer() {
-        assert(this);
-        assert(&that);
-        std::swap(Field, that.Field);
-    }
-
-    DSVStringFieldBuffer &operator=(
-        const DSVStringFieldBuffer &that) = delete;
-
-    DSVStringFieldBuffer &operator=(DSVStringFieldBuffer &&that) {
-        assert(this);
-        assert(&that);
-        std::swap(Field, that.Field);
-        return *this;
-    }
-
-    // Hook invoked by DSVParser when it parses a field's character
-    void OnFieldCharacter(_CharT c) {
-        assert(this);
-        Field.push_back(c);
-    }
-
-    // Hook invoked by DSVParser when the parser is reset.
-    // This implementation simply calls ClearField.
-    void OnReset() {
-        assert(this);
-        ClearField();
-    }
-
-    // Clear the field buffer.  Subclasses should invoke this
-    // in their implementations of OnFieldEnd.
-    void ClearField() {
-        assert(this);
-        Field.clear();
-    }
-
-protected:
-    // the buffer for field characters
-    TField Field;
-
-};    // class DSVStringFieldBuffer
-
 // This class parses delimiter-separated values in text streams.
 // The format is specified in the text mentioned at the beginning
 // of this file.
 //
-// Callbacks must be a class or struct that defines the following:
+// This class uses the curiously recurring template pattern (CRTP).
+// Derived must be a descendant class that defines the following:
 //
-//     * a default constructor
-//     * a copy constructor
 //     * a method called OnRecordStart taking no parameters,
 //       which is invoked when a new record is being parsed
 //     * a method called OnFieldCharacter taking a single _CharT,
@@ -126,41 +40,27 @@ protected:
 //       which is invoked when the parser is done parsing a record
 //     * a method called OnReset taking no parameters,
 //       which is invoked when the parser is reset
-//     * a _CharT called Separator, which represents a single field
-//       separator character
-//     * a _CharT called Escape, which represents a single escape
-//       character
+//     * a method called GetSeparator taking no parameters, which
+//       returns the DSV separator character as a _CharT
+//     * a method called GetEscape taking no parameters, which
+//       returns the DSV escape character as a _CharT
 //
-// Providing a move constructor is helpful.
-//
-template<typename Callbacks, typename _CharT = char>
+// All of these methods must be publicly accessible unless Derived declares
+// DSVParser<Derived> a friend class.
+template <typename Derived, typename _CharT = char>
 class DSVParser {
 
 public:
     typedef _CharT CharT;
 
-    DSVParser() : Hooks(), Escaping(false), InRecord(false) {
+    DSVParser() : Escaping(false), InRecord(false) {
         assert(this);
     }
 
-    DSVParser(const Callbacks &hooks) : Hooks(hooks), Escaping(false),
-                                         InRecord(false) {
-        assert(this);
-    }
-
-    DSVParser(Callbacks &&hooks) : DSVParser() {
-        assert(this);
-        assert(&hooks);
-        std::swap(Hooks, hooks);
-    }
-
-    DSVParser(const DSVParser &) = delete;
-
-    DSVParser(DSVParser &&that) : DSVParser() {
+    DSVParser(const DSVParser &that) {
         assert(this);
         assert(&that);
-        std::swap(Hooks, that.Hooks);
-        std::swap(Escaping, that.Escaping);
+        Copy(that);
     }
 
     ~DSVParser() {
@@ -169,14 +69,10 @@ public:
         Escaping = InRecord = false;
     }
 
-    DSVParser operator=(const DSVParser &) = delete;
-
-    DSVParser &operator=(DSVParser &&that) {
+    DSVParser &operator=(const DSVParser &that) {
         assert(this);
         assert(&that);
-        std::swap(Hooks, that.Hooks);
-        std::swap(Escaping, that.Escaping);
-        std::swap(InRecord, that.InRecord);
+        Copy(that);
         return *this;
     }
 
@@ -191,36 +87,10 @@ public:
     void FinishParsing() {
         assert(this);
         if (InRecord) {
-            Hooks.OnFieldEnd();
+            AsDerived()->OnFieldEnd();
             Escaping = InRecord = false;
-            Hooks.OnRecordEnd();
+            AsDerived()->OnRecordEnd();
         }
-    }
-
-    // Get the callbacks object.
-    Callbacks &GetCallbacks()
-    {
-        assert(this);
-        return Hooks;
-    }
-
-    // Get the callbacks object.
-    const Callbacks &GetCallbacks() const
-    {
-        assert(this);
-        return Hooks;
-    }
-
-    // Get the escape character.
-    CharT GetEscape() const {
-        assert(this);
-        return Hooks.Escape;
-    }
-
-    // Get the field separator character.
-    CharT GetSeparator() const {
-        assert(this);
-        return Hooks.Separator;
     }
 
     // Parse the specified stream.  This does not call FinishParsing.
@@ -253,34 +123,43 @@ public:
     void Reset() {
         assert(this);
         Escaping = InRecord = false;
-        Hooks.OnReset();
+        AsDerived()->OnReset();
     }
 
 private:
+    Derived *AsDerived() { return static_cast<Derived *>(this); }
+
     void HandleParsedCharacter(CharT c) {
         assert(this);
         if (Escaping) {
-            Hooks.OnFieldCharacter(c);
+            AsDerived()->OnFieldCharacter(c);
             Escaping = false;
         } else {
             if (!InRecord && c != '\n') {
                 InRecord = true;
-                Hooks.OnRecordStart();
+                AsDerived()->OnRecordStart();
             }
-            if (c == GetSeparator()) {
-                Hooks.OnFieldEnd();
-            } else if (c == GetEscape()) {
+            if (c == AsDerived()->GetSeparator()) {
+                AsDerived()->OnFieldEnd();
+            } else if (c == AsDerived()->GetEscape()) {
                 Escaping = true;
             } else if (c == '\n') {
                 if (InRecord) {
-                    Hooks.OnFieldEnd();
+                    AsDerived()->OnFieldEnd();
                     InRecord = false;
-                    Hooks.OnRecordEnd();
+                    AsDerived()->OnRecordEnd();
                 }
             } else {
-                Hooks.OnFieldCharacter(c);
+                AsDerived()->OnFieldCharacter(c);
             }
         }
+    }
+
+    void Copy(const DSVParser &that) {
+        assert(this);
+        assert(&that);
+        Escaping = that.Escaping;
+        InRecord = that.InRecord;
     }
 
     // true if the parser just parsed an unescaped escape character
@@ -289,9 +168,37 @@ private:
     // true if the parser is in the middle of a record
     bool InRecord;
 
-    // parser callbacks
-    Callbacks Hooks;
-
 };    // class DSVParser
+
+// This class provides the methods required by DSVParser as pure virtual
+// functions.  Derive from this class if you need run-time polymorphism.
+template <typename _CharT = char>
+class DynamicDSVParser : public DSVParser<DynamicDSVParser<_CharT>, _CharT> {
+
+public:
+    virtual void OnRecordStart() = 0;
+    virtual void OnFieldCharacter(_CharT c) = 0;
+    virtual void OnFieldEnd() = 0;
+    virtual void OnRecordEnd() = 0;
+    virtual void OnReset() = 0;
+    virtual _CharT GetEscape() const = 0;
+    virtual _CharT GetSeparator() const = 0;
+
+};    // class DynamicDSVParser
+
+// This class provides GetEscape and GetSeparator methods that return
+// '\\' and ':', respectively.  These are the escape and separator
+// characters that are most commonly used in UNIX DSV files.
+template <typename _CharT = char>
+class UnixDSVParser {
+
+public:
+    static const _CharT Escape = '\\';
+    static const _CharT Separator = ':';
+
+    _CharT GetEscape() const { assert(this); return Escape; }
+    _CharT GetSeparator() const { assert(this); return Separator; }
+
+};    // class UnixDSVParser
 
 }    // namespace PlainText
