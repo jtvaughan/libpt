@@ -17,7 +17,6 @@
 
 #include <cinttypes>
 #include <cstring>
-#include <string>
 
 namespace libpt {
 
